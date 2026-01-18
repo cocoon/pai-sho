@@ -20,9 +20,9 @@ Last few releases: !`git tag --sort=-version:refname | head -5`
 
 ### 1. Pre-Release Confirmation
 
-**Ask the user to confirm:**
-- Version number: $ARGUMENTS
-- Ready to proceed with release
+**Ask the user for the following before starting:**
+- Cargo registry token (if not already set in environment)
+- Confirm the version number: $ARGUMENTS
 
 ### 2. Version Management
 
@@ -99,15 +99,51 @@ If eget fails, check:
 - Artifact naming matches eget conventions
 - Tarball structure is correct (binary in top-level directory)
 
+### 8. Homebrew Formula Update
+
+- Clone `../homebrew-tap` if not present: `git clone https://github.com/cablehead/homebrew-tap.git`
+- Download macOS tarball and calculate SHA256:
+  ```bash
+  cd /tmp
+  curl -sL https://github.com/cablehead/pai-sho/releases/download/v$ARGUMENTS/pai-sho-v$ARGUMENTS-macos-arm64.tar.gz -o pai-sho-v$ARGUMENTS-macos-arm64.tar.gz
+  sha256sum pai-sho-v$ARGUMENTS-macos-arm64.tar.gz
+  ```
+- Update `../homebrew-tap/Formula/pai-sho.rb` with new version, URL, and SHA256 checksum
+- Commit and push homebrew formula changes
+
+### 9. Manual Verification Required
+
+**⚠️ CRITICAL: macOS Verification BEFORE Publishing to Crates.io**
+
+After homebrew formula is updated, **PAUSE** and ask a macOS user to test:
+
+```bash
+brew uninstall pai-sho  # if previously installed
+brew install cablehead/tap/pai-sho
+pai-sho --version  # should show $ARGUMENTS
+```
+
+**STOP HERE if verification fails.** Publishing to crates.io is irreversible.
+
+### 10. Cargo Registry Publication
+
+**Only proceed after macOS verification passes.**
+
+- Use the cargo token provided in step 1: `export CARGO_REGISTRY_TOKEN="..."`
+- Run `cargo publish` to publish to crates.io
+- **Warning**: This step cannot be undone - you cannot unpublish from crates.io
+
 ## Release Complete
 
 The release is now public! Summary:
 - ✅ GitHub release: https://github.com/cablehead/pai-sho/releases/tag/v$ARGUMENTS
-- ✅ Installation: `eget cablehead/pai-sho`
+- ✅ eget: `eget cablehead/pai-sho`
+- ✅ Homebrew: `brew install cablehead/tap/pai-sho`
+- ✅ Crates.io: `cargo install pai-sho`
 
 ## Rollback Plan
 
-If verification fails:
+If verification fails **before cargo publish**:
 
 1. Delete the git tag:
    ```bash
@@ -118,8 +154,12 @@ If verification fails:
    ```bash
    gh release delete v$ARGUMENTS --yes
    ```
-3. Revert version changes in Cargo.toml
-4. Investigate and fix issues before retry
+3. Revert homebrew formula changes
+4. Revert version changes in Cargo.toml
+5. Investigate and fix issues before retry
+
+**Note**: If cargo publish has already completed, you cannot unpublish from crates.io.
+You would need to publish a new patch version with the fix instead.
 
 ---
 
