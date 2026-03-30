@@ -15,6 +15,10 @@ Example good commit messages:
 - `refactor: simplify tunnel forwarding logic`
 - `test: add integration tests for peer discovery`
 
+## ASCII Only
+
+All text in the repo must be ASCII only. No em-dashes, smart quotes, emoji, or other non-ASCII characters. Use `--` instead of em-dashes, plain quotes, and plain text markers like `WARNING:` instead of emoji.
+
 ## Code Quality
 
 Before committing:
