@@ -26,7 +26,7 @@ impl Daemon {
     pub async fn new(host: IpAddr) -> Result<Arc<Self>> {
         let secret_key = SecretKey::generate(&mut rand::rng());
 
-        let endpoint = Endpoint::builder()
+        let endpoint = Endpoint::builder(iroh::endpoint::presets::N0)
             .secret_key(secret_key)
             .alpns(vec![ALPN.to_vec()])
             .bind()

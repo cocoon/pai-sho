@@ -262,7 +262,7 @@ impl PeerManager {
 
     /// Handle an incoming connection from a peer
     pub async fn handle_connection(&self, conn: Connection) -> Result<()> {
-        let remote_id = conn.remote_id()?;
+        let remote_id = conn.remote_id();
 
         if let Some(peer) = self.peers.get(&remote_id) {
             // Known peer reconnecting -- close old connection, install new one
