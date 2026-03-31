@@ -1,6 +1,17 @@
-# pai-sho
+<h1>
+<p align="center">
+  pai-sho
+</h1>
+  <p align="center">
+    What happens when you want <a href="https://github.com/n0-computer/dumbpipe">dumbpipe</a> to stay running, handle a few ports at once, and reconnect when your laptop wakes up.
+  </p>
+</p>
 
-What happens when you want [dumbpipe](https://github.com/n0-computer/dumbpipe) to stay running, handle a few ports at once, and reconnect when your laptop wakes up.
+<p align="center">
+  <a href="https://crates.io/crates/pai-sho">
+    <img src="https://img.shields.io/crates/v/pai-sho.svg" alt="Crates">
+  </a>
+</p>
 
 My workflow is generally a dedicated VM per task -- a [vibenv](https://github.com/cablehead/vibenv.dag). These environments tend to have no open inbound ports. iroh's [dumbpipe](https://github.com/n0-computer/dumbpipe) worked nicely for reaching a single port, but when you need 3-4 ports you have to run 3-4 dumbpipes on each side -- so 6-8 processes just to share a few ports. pai-sho gives you a single long-lived daemon that manages multiple ports. You can expose and unexpose them on the fly, and if the connection drops it comes back on its own.
 
