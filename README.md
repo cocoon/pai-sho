@@ -77,7 +77,7 @@ list                    Show peers, exposed ports, bindings
 
 Each daemon gets a unique ticket (an iroh endpoint ID). When you add a peer by ticket, iroh handles discovery and NAT traversal -- connecting directly when possible, falling back through relay servers when needed.
 
-Exposed ports are announced to peers automatically. When a peer exposes port 3001, a local TCP listener binds `127.0.0.1:3001` on your side. Traffic goes over an encrypted QUIC connection.
+Exposed ports are announced to peers automatically. When a peer exposes port 3001, a local TCP listener binds `127.0.0.1:3001` on your side. Traffic goes over an encrypted QUIC connection. It goes both ways -- if you have something running locally on `:4001`, `pai-sho expose 4001` makes it available in the remote session too.
 
 If the connection drops, both sides reconnect with exponential backoff. Existing port bindings stay active and resume when the connection comes back.
 
