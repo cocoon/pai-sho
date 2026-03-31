@@ -8,6 +8,9 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/cablehead/pai-sho/actions/workflows/ci.yml">
+    <img src="https://github.com/cablehead/pai-sho/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
   <a href="https://crates.io/crates/pai-sho">
     <img src="https://img.shields.io/crates/v/pai-sho.svg" alt="Crates">
   </a>
