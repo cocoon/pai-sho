@@ -1,6 +1,6 @@
 [package]
 name = "pai-sho"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "What happens when you want dumbpipe to stay running, handle a few ports at once, and reconnect when your laptop wakes up"
 license = "MIT"
