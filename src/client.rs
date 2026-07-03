@@ -16,6 +16,7 @@ pub async fn send_command(socket_path: &Path, command: Command) -> Result<()> {
         Command::List => Request::List,
         Command::Ticket => Request::Ticket,
         Command::GrantToken { label } => Request::GrantToken { label },
+        Command::Pin { key, label } => Request::Pin { key, label },
         Command::Daemon { .. } => unreachable!("daemon handled separately"),
     };
 

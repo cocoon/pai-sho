@@ -159,8 +159,16 @@ impl PeerManager {
         let peer = Peer::new(endpoint_id, Some(label.to_string()), false, None, None);
         self.peers.insert(endpoint_id, peer.clone());
         self.spawn_connection_loop(peer);
-        info!("loaded pinned peer {} (\"{}\")", endpoint_id, label);
+        info!("pinned peer {} (\"{}\")", endpoint_id, label);
         Ok(())
+    }
+
+    /// Pin a peer by key under a label without a token (host-attested
+    /// enrollment): register it live so it is authorized when it phones
+    /// home, and persist the pin across restarts. Idempotent.
+    pub fn pin_peer(self: &Arc<Self>, key: &str, label: &str) -> Result<()> {
+        self.add_pinned(key, label)?;
+        self.pins.add(key, label)
     }
 
     /// Send a control message on a new uni stream

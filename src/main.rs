@@ -87,6 +87,18 @@ pub enum Command {
         #[arg(long)]
         label: String,
     },
+
+    /// Pin a peer by its key under a label, no token (host-attested
+    /// enrollment). The key is authorized when the peer dials in; nothing
+    /// secret travels into the workload. See
+    /// docs/adr/0003-host-attested-enrollment.md.
+    Pin {
+        /// Peer's key (endpoint ID), e.g. reported by the workload over vsock
+        key: String,
+        /// Label to pin the peer under
+        #[arg(long)]
+        label: String,
+    },
 }
 
 #[tokio::main]
