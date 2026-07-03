@@ -95,6 +95,7 @@ pai-sho [--socket <path>] <command>
 daemon [options]           Start the daemon
 ticket                     Print the daemon's ticket
 grant-token --label <l>    Mint a one-time enrollment token (valid 5 min)
+pin <key> --label <l>      Enroll a peer by key, no token (host-attested)
 add-peer <ticket>          Connect to a peer
 remove-peer <ticket>       Disconnect from a peer (and drop its pin)
 expose <port> [--to <key>] Grant a local port to peers (default: all known)
