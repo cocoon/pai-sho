@@ -231,6 +231,10 @@ impl Daemon {
             Request::List => Response::List(self.list().await),
             Request::Ticket => Response::Ticket(self.ticket()),
             Request::GrantToken { label } => Response::Token(self.tokens.mint(label)),
+            Request::Pin { key, label } => match self.peers.pin_peer(&key, &label) {
+                Ok(()) => Response::Ok,
+                Err(e) => Response::Error(e.to_string()),
+            },
         }
     }
 }

@@ -33,6 +33,11 @@ pub enum Request {
     GrantToken {
         label: String,
     },
+    /// Pin a peer's key under a label without a token (host-attested)
+    Pin {
+        key: String,
+        label: String,
+    },
 }
 
 /// Response from daemon to CLI client
