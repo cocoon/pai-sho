@@ -14,8 +14,8 @@ pub const ALPN: &[u8] = b"PAI_SHO/1";
 pub enum Request {
     AddPeer { ticket: String },
     RemovePeer { ticket: String },
-    Expose { port: u16 },
-    Unexpose { port: u16 },
+    Expose { port: ExposedPort },
+    Unexpose { port: ExposedPort },
     List,
     Ticket,
 }
@@ -32,7 +32,7 @@ pub enum Response {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ListInfo {
     pub peers: Vec<PeerInfo>,
-    pub exposed_ports: Vec<u16>,
+    pub exposed_ports: Vec<ExposedPort>,
     pub bindings: Vec<BindingInfo>,
 }
 
@@ -40,12 +40,18 @@ pub struct ListInfo {
 pub struct PeerInfo {
     pub endpoint_id: String,
     pub connected: bool,
-    pub exposed_ports: Vec<u16>,
+    pub exposed_ports: Vec<ExposedPort>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BindingInfo {
     pub port: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct ExposedPort {
+    pub remote: u16,
+    pub local: u16,
 }
 
 // ============================================================================
@@ -56,7 +62,7 @@ pub struct BindingInfo {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum PeerMessage {
     /// Announce exposed ports (sent on connect and when ports change)
-    ExposedPorts(Vec<u16>),
+    ExposedPorts(Vec<ExposedPort>),
     /// Request to connect to a specific port
     Connect { port: u16 },
     /// Error response

@@ -1,6 +1,6 @@
 //! Peer management - connections, port announcements, auto-binding, reconnection.
 
-use crate::protocol::{BindingInfo, PeerInfo, PeerMessage, ALPN};
+use crate::protocol::{ALPN, BindingInfo, ExposedPort, PeerInfo, PeerMessage};
 use crate::tunnel::{self, PeerConnection};
 use anyhow::{anyhow, Context, Result};
 use dashmap::DashMap;
@@ -22,7 +22,7 @@ struct Peer {
     endpoint_id: EndpointId,
     connection: RwLock<Option<Connection>>,
     /// Ports this peer exposes
-    exposed_ports: RwLock<Vec<u16>>,
+    exposed_ports: RwLock<Vec<ExposedPort>>,
     /// Active bindings (local port -> task handle)
     bindings: DashMap<u16, tokio::task::JoinHandle<()>>,
     /// Notified when a new connection replaces the current one
@@ -37,13 +37,13 @@ pub struct PeerManager {
     /// Our endpoint (for outbound reconnection)
     endpoint: Endpoint,
     /// Shared exposed ports (for re-announcing after reconnect)
-    exposed_ports: Arc<RwLock<HashSet<u16>>>,
+    exposed_ports: Arc<RwLock<HashSet<ExposedPort>>>,
     /// Host address for forwarding tunnel requests
     host: IpAddr,
 }
 
 impl PeerManager {
-    pub fn new(endpoint: Endpoint, host: IpAddr, exposed_ports: Arc<RwLock<HashSet<u16>>>) -> Self {
+    pub fn new(endpoint: Endpoint, host: IpAddr, exposed_ports: Arc<RwLock<HashSet<ExposedPort>>>) -> Self {
         Self {
             peers: DashMap::new(),
             endpoint,
@@ -101,7 +101,7 @@ impl PeerManager {
         endpoint: Endpoint,
         peer: Arc<Peer>,
         host: IpAddr,
-        exposed_ports: Arc<RwLock<HashSet<u16>>>,
+        exposed_ports: Arc<RwLock<HashSet<ExposedPort>>>,
     ) {
         let mut backoff = BACKOFF_INITIAL;
 
@@ -227,35 +227,42 @@ impl PeerManager {
     }
 
     /// Update peer's exposed ports and manage bindings
-    async fn update_peer_ports(peer: &Arc<Peer>, new_ports: Vec<u16>) {
+    async fn update_peer_ports(peer: &Arc<Peer>, new_ports: Vec<ExposedPort>) {
         let old_ports = peer.exposed_ports.read().await.clone();
 
         // Stop bindings for removed ports
-        for port in &old_ports {
-            if !new_ports.contains(port) {
-                if let Some((_, handle)) = peer.bindings.remove(port) {
+        for old in &old_ports {
+            if !new_ports.iter().any(|p| p.remote == old.remote) {
+                if let Some((_, handle)) = peer.bindings.remove(&old.remote) {
                     handle.abort();
-                    info!("removed binding for port {}", port);
+                    info!("removed binding for remote port {}", old.remote);
                 }
             }
         }
 
         // Create bindings for new ports
-        for &port in &new_ports {
-            if !old_ports.contains(&port) && !peer.bindings.contains_key(&port) {
+        for p in &new_ports {
+            if !old_ports.iter().any(|o| o.remote == p.remote)
+                && !peer.bindings.contains_key(&p.remote)
+            {
                 let peer_clone = peer.clone();
+                let remote = p.remote;
+                let local = p.local;
+
                 let handle = tokio::spawn(async move {
-                    if let Err(e) = tunnel::bind_port(port, &peer_clone).await {
-                        error!("binding port {} failed: {}", port, e);
+                    if let Err(e) = tunnel::bind_port(local, remote, &peer_clone).await {
+                        error!("binding local {} -> remote {} failed: {}", local, remote, e);
                     }
                 });
-                peer.bindings.insert(port, handle);
-                info!("created binding for port {}", port);
+
+                peer.bindings.insert(remote, handle);
+                info!("created binding local {} -> remote {}", local, remote);
             }
         }
 
         *peer.exposed_ports.write().await = new_ports;
     }
+
 
     /// Remove a peer by ticket
     pub async fn remove_peer(&self, ticket: &str) -> Result<()> {
@@ -317,7 +324,7 @@ impl PeerManager {
         }
 
         // Send our exposed ports to this peer
-        let ports: Vec<u16> = self.exposed_ports.read().await.iter().copied().collect();
+        let ports: Vec<ExposedPort> = self.exposed_ports.read().await.iter().cloned().collect();
         if !ports.is_empty() {
             let msg = PeerMessage::ExposedPorts(ports);
             let data = serde_json::to_vec(&msg).unwrap();
@@ -338,8 +345,8 @@ impl PeerManager {
     }
 
     /// Send our exposed ports to a specific peer
-    async fn send_exposed_ports_to_peer(peer: &Peer, exposed_ports: &Arc<RwLock<HashSet<u16>>>) {
-        let ports: Vec<u16> = exposed_ports.read().await.iter().copied().collect();
+    async fn send_exposed_ports_to_peer(peer: &Peer, exposed_ports: &Arc<RwLock<HashSet<ExposedPort>>>) {
+        let ports: Vec<ExposedPort> = exposed_ports.read().await.iter().cloned().collect();
         if ports.is_empty() {
             return;
         }
@@ -364,7 +371,7 @@ impl PeerManager {
     }
 
     /// Broadcast our exposed ports to all connected peers
-    pub async fn broadcast_exposed_ports(&self, ports: Vec<u16>) {
+    pub async fn broadcast_exposed_ports(&self, ports: Vec<ExposedPort>) {
         let msg = PeerMessage::ExposedPorts(ports);
         let data = serde_json::to_vec(&msg).unwrap();
 

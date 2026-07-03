@@ -1,7 +1,7 @@
 //! Daemon - manages iroh endpoint, peers, and tunnels.
 
 use crate::peer::PeerManager;
-use crate::protocol::{ListInfo, Request, Response, ALPN};
+use crate::protocol::{ALPN, ExposedPort, ListInfo, Request, Response};
 use anyhow::{Context, Result};
 use iroh::{Endpoint, SecretKey};
 use std::collections::HashSet;
@@ -9,16 +9,98 @@ use std::net::IpAddr;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::RwLock;
 use tracing::{error, info};
 
+#[cfg(unix)]
+use tokio::net::{UnixListener, UnixStream};
+
+#[cfg(windows)]
+use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
+
+enum PlatformListener {
+    #[cfg(unix)]
+    Unix(UnixListener),
+
+    #[cfg(windows)]
+    Pipe(String),
+}
+
+enum PlatformStream {
+    #[cfg(unix)]
+    Unix(UnixStream),
+
+    #[cfg(windows)]
+    Pipe(NamedPipeServer),
+}
+
+impl PlatformListener {
+    async fn accept(&self) -> Result<PlatformStream> {
+        #[cfg(unix)]
+        {
+            let (stream, _) = match self {
+                PlatformListener::Unix(l) => l.accept().await?,
+            };
+            Ok(PlatformStream::Unix(stream))
+        }
+
+        #[cfg(windows)]
+        {
+            match self {
+                PlatformListener::Pipe(pipe_name) => {
+                    let server = ServerOptions::new()
+                        .first_pipe_instance(true)
+                        .create(pipe_name)?;
+
+                    server.connect().await?;
+
+                    Ok(PlatformStream::Pipe(server))
+                }
+            }
+        }
+    }
+}
+
+impl PlatformStream {
+    fn split(
+        self,
+    ) -> (
+        Box<dyn tokio::io::AsyncRead + Send + Unpin>,
+        Box<dyn tokio::io::AsyncWrite + Send + Unpin>,
+    ) {
+        match self {
+            #[cfg(unix)]
+            PlatformStream::Unix(stream) => {
+                let (r, w) = stream.into_split();
+                (Box::new(r), Box::new(w))
+            }
+
+            #[cfg(windows)]
+            PlatformStream::Pipe(server) => {
+                let (r, w) = tokio::io::split(server);
+                (Box::new(r), Box::new(w))
+            }
+        }
+    }
+}
+
+async fn create_listener(socket_path: &Path) -> Result<PlatformListener> {
+    #[cfg(unix)]
+    {
+        let _ = std::fs::remove_file(socket_path);
+        let listener = UnixListener::bind(socket_path)?;
+        Ok(PlatformListener::Unix(listener))
+    }
+
+    #[cfg(windows)]
+    {
+        Ok(PlatformListener::Pipe(r"\\.\pipe\iroh_daemon".to_string()))
+    }
+}
+
 pub struct Daemon {
-    /// The iroh endpoint
     endpoint: Endpoint,
-    /// Ports we expose to peers (shared with PeerManager for reconnect re-announce)
-    exposed_ports: Arc<RwLock<HashSet<u16>>>,
-    /// Connected peers
+    exposed_ports: Arc<RwLock<HashSet<ExposedPort>>>,
     peers: PeerManager,
 }
 
@@ -43,31 +125,33 @@ impl Daemon {
     }
 
     pub fn ticket(&self) -> String {
-        // TODO: proper ticket serialization
         self.endpoint.id().to_string()
     }
 
-    pub async fn expose(&self, port: u16) -> Result<()> {
-        self.exposed_ports.write().await.insert(port);
+    pub async fn expose(&self, port: ExposedPort) -> Result<()> {
+        self.exposed_ports.write().await.insert(port.clone());
         self.peers
             .broadcast_exposed_ports(self.get_exposed_ports().await)
             .await;
-        info!("exposed port {}", port);
+        info!("exposed port remote={} local={}", port.remote, port.local);
         Ok(())
     }
 
-    pub async fn unexpose(&self, port: u16) -> Result<()> {
+
+    pub async fn unexpose(&self, port: ExposedPort) -> Result<()> {
         self.exposed_ports.write().await.remove(&port);
         self.peers
             .broadcast_exposed_ports(self.get_exposed_ports().await)
             .await;
-        info!("unexposed port {}", port);
+        info!("unexposed port remote={} local={}", port.remote, port.local);
         Ok(())
     }
 
-    pub async fn get_exposed_ports(&self) -> Vec<u16> {
-        self.exposed_ports.read().await.iter().copied().collect()
+
+    pub async fn get_exposed_ports(&self) -> Vec<ExposedPort> {
+        self.exposed_ports.read().await.iter().cloned().collect()
     }
+
 
     pub async fn list(&self) -> ListInfo {
         ListInfo {
@@ -77,7 +161,6 @@ impl Daemon {
         }
     }
 
-    /// Accept incoming peer connections
     pub async fn accept_loop(self: Arc<Self>) {
         loop {
             match self.endpoint.accept().await {
@@ -102,12 +185,10 @@ impl Daemon {
         self.peers.handle_connection(conn).await
     }
 
-    /// Handle a request from the CLI client
     pub async fn handle_request(self: &Arc<Self>, request: Request) -> Response {
         match request {
             Request::AddPeer { ticket } => match self.peers.add_peer(&ticket).await {
                 Ok(()) => {
-                    // Send our exposed ports to the new peer
                     let ports = self.get_exposed_ports().await;
                     self.peers.broadcast_exposed_ports(ports).await;
                     Response::Ok
@@ -132,14 +213,14 @@ impl Daemon {
     }
 }
 
-/// Run the daemon
 pub async fn run(
     host: IpAddr,
     socket_path: &Path,
     peers: Vec<String>,
-    ports: Vec<u16>,
+    remote: Vec<u16>,
+    local: Vec<u16>,
 ) -> Result<()> {
-    // Clean up old socket
+    #[cfg(unix)]
     let _ = std::fs::remove_file(socket_path);
 
     let daemon = Daemon::new(host).await?;
@@ -147,43 +228,42 @@ pub async fn run(
     println!("Ticket: {}", daemon.ticket());
     info!("daemon started, host={}", host);
 
-    // Expose ports specified on command line
-    for port in ports {
-        daemon.expose(port).await?;
+    if !local.is_empty() && local.len() != remote.len() {
+        return Err(anyhow::anyhow!(
+            "--local must be given the same number of times as --expose"
+        ));
     }
 
-    // Add peers specified on command line
+    for (i, r) in remote.iter().copied().enumerate() {
+        let l = local.get(i).copied().unwrap_or(r);
+        daemon.expose(ExposedPort { remote: r, local: l }).await?;
+    }
+
+
     for ticket in &peers {
         match daemon.peers.add_peer(ticket).await {
-            Ok(()) => {
-                info!("added peer {}", ticket);
-            }
-            Err(e) => {
-                error!("failed to add peer {}: {}", ticket, e);
-            }
+            Ok(()) => info!("added peer {}", ticket),
+            Err(e) => error!("failed to add peer {}: {}", ticket, e),
         }
     }
 
-    // Broadcast exposed ports to newly added peers
     if !peers.is_empty() {
         let ports = daemon.get_exposed_ports().await;
         daemon.peers.broadcast_exposed_ports(ports).await;
     }
 
-    // Start accepting peer connections
     let accept_daemon = daemon.clone();
     tokio::spawn(async move {
         accept_daemon.accept_loop().await;
     });
 
-    // Listen for CLI commands on Unix socket
-    let listener = UnixListener::bind(socket_path).context("failed to bind Unix socket")?;
-
+    let listener = create_listener(socket_path).await?;
     info!("listening on {:?}", socket_path);
 
     loop {
-        let (stream, _) = listener.accept().await?;
+        let stream = listener.accept().await?;
         let daemon = daemon.clone();
+
         tokio::spawn(async move {
             if let Err(e) = handle_client(stream, daemon).await {
                 error!("client error: {}", e);
@@ -192,8 +272,8 @@ pub async fn run(
     }
 }
 
-async fn handle_client(stream: UnixStream, daemon: Arc<Daemon>) -> Result<()> {
-    let (reader, mut writer) = stream.into_split();
+async fn handle_client(stream: PlatformStream, daemon: Arc<Daemon>) -> Result<()> {
+    let (reader, mut writer) = stream.split();
     let mut reader = BufReader::new(reader);
     let mut line = String::new();
 

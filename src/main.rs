@@ -35,7 +35,10 @@ pub enum Command {
         peers: Vec<String>,
         /// Expose port(s) on startup
         #[arg(short = 'e', long = "expose")]
-        ports: Vec<u16>,
+        remote: Vec<u16>,
+        /// Local Ports (optional, same number as --expose)
+        #[arg(long)]
+        local: Vec<u16>,
     },
 
     /// Add a peer (returns assigned IP)
@@ -51,10 +54,21 @@ pub enum Command {
     },
 
     /// Expose a port to peers
-    Expose { port: u16 },
+    Expose {
+        /// Remote port
+        remote: u16,
+
+        /// Optional local Port (default = remote)
+        #[arg(long)]
+        local: Option<u16>,
+    },
 
     /// Stop exposing a port
-    Unexpose { port: u16 },
+    Unexpose {
+        remote: u16,
+        #[arg(long)]
+        local: Option<u16>,
+    },
 
     /// List peers, exposed ports, and bindings
     List,
@@ -77,8 +91,8 @@ async fn main() -> Result<()> {
     let socket_path = std::path::Path::new(&cli.socket);
 
     match cli.command {
-        Command::Daemon { host, peers, ports } => {
-            daemon::run(host, socket_path, peers, ports).await?;
+        Command::Daemon { host, peers, remote, local } => {
+            daemon::run(host, socket_path, peers, remote, local).await?;
         }
         _ => {
             client::send_command(socket_path, cli.command).await?;

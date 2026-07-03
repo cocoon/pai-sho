@@ -8,23 +8,22 @@ use tracing::{debug, error, info};
 const LOCALHOST: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 1);
 
 /// Bind a local port and forward connections to a peer's port
-pub async fn bind_port<P>(port: u16, peer: &P) -> Result<()>
+pub async fn bind_port<P>(local_port: u16, remote_port: u16, peer: &P) -> Result<()>
 where
     P: PeerConnection + Send + Sync + 'static,
 {
-    let addr = SocketAddr::from((LOCALHOST, port));
+    let addr = SocketAddr::from((LOCALHOST, local_port));
     let listener = TcpListener::bind(addr)
         .await
         .with_context(|| format!("failed to bind {}", addr))?;
 
-    info!("listening on {}", addr);
+    info!("listening on local {} (remote {})", local_port, remote_port);
 
     loop {
         let (stream, client_addr) = listener.accept().await?;
         debug!("accepted connection from {} on {}", client_addr, addr);
 
-        // Open connection to peer for this port
-        match peer.open_tunnel(port).await {
+        match peer.open_tunnel(remote_port).await {
             Ok((send, recv)) => {
                 tokio::spawn(async move {
                     if let Err(e) = forward_bidirectional(stream, send, recv).await {
@@ -33,7 +32,10 @@ where
                 });
             }
             Err(e) => {
-                error!("failed to open tunnel to peer for port {}: {}", port, e);
+                error!(
+                    "failed to open tunnel to peer for remote port {}: {}",
+                    remote_port, e
+                );
             }
         }
     }
