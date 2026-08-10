@@ -69,7 +69,7 @@ fn is_stock_loopback(ip: IpAddr) -> bool {
     ip == IpAddr::V4(Ipv4Addr::LOCALHOST)
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 fn add_addr(_ip: IpAddr) -> Result<()> {
     // 127.0.0.0/8 already routes to lo, so a listener can bind any address in
     // it with no setup and no privilege. Nothing to add.
@@ -91,7 +91,7 @@ fn del_addr(ip: IpAddr) -> Result<()> {
     run("ifconfig", &["lo0", "-alias", &ip.to_string()])
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 fn add_addr(ip: IpAddr) -> Result<()> {
     anyhow::bail!(
         "projecting {} needs a loopback alias, unsupported on this OS (use --ip 127.0.0.1)",
